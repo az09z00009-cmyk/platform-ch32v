@@ -251,6 +251,15 @@ elif upload_protocol == "espota":
     )
     upload_target = target_bin
     upload_actions = [_ota_upload]
+#TODO: cambiar comentarios a ingles de la funcionalidad picoRVD
+#agregue la compativilidad con el picoRVD
+
+elif upload_protocol == "picorvd":
+    env.Replace(
+        UPLOADER="riscv64-unknown-elf-gdb",
+        UPLOADCMD='"$UPLOADER" -ex "target extended-remote $UPLOAD_PORT" -ex "monitor reset" -ex "load" -ex "detach" -ex "quit" $SOURCE'
+    )
+    
 # custom upload tool
 elif upload_protocol == "custom":
     upload_actions = [env.VerboseAction("$UPLOADCMD", "Uploading $SOURCE")]
