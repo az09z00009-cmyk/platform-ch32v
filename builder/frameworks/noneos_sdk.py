@@ -154,32 +154,15 @@ if startup_filename :
         dirname(startup_filename),
         "-<*> +<%s>" % startup_filename
     )
-# TODO: cambiar los comentarios de ingles a español de el arreglo del error en el frameword ch32v003fun
-#arregle los problemas de las dependencias en ch32v003fun
-elif get_flag_value("use_builtin_startup_file", True):
-    # 1. SOLUCIÓN UNIVERSAL PARA EL FRAMEWORK CH32V003FUN
-    # Verificamos si la ruta del framework activo pertenece a ch32v003fun
-    if "framework-ch32v003fun" in FRAMEWORK_DIR.lower():
-        env.Append(
-            CPPPATH=[
-                join(FRAMEWORK_DIR, "ch32fun"),
-                join(FRAMEWORK_DIR, "extralibs")
-            ]
-        )
-        # ch32v003fun compila todo el núcleo desde su carpeta ch32fun
-        env.BuildSources(
-            join("$BUILD_DIR", "FrameworkCh32v003fun"),
-            join(FRAMEWORK_DIR, "ch32fun")
-        )
 
-    # 2. COMPORTAMIENTO ORIGINAL (Para el resto de SDKs como NoneOS SDK)
-    else:
-        env.Append(CPPPATH=[join(FRAMEWORK_DIR, "Startup")])
-        env.BuildSources(
-            join("$BUILD_DIR", "FrameworkNoneOSStartup"),
-            join(FRAMEWORK_DIR, "Startup"),
-            "-<*> +<%s>" % get_startup_filename(board)
-        )
+elif get_flag_value("use_builtin_startup_file", True):
+
+    env.Append(CPPPATH=[join(FRAMEWORK_DIR, "Startup")])
+    env.BuildSources(
+        join("$BUILD_DIR", "FrameworkNoneOSStartup"),
+        join(FRAMEWORK_DIR, "Startup"),
+        "-<*> +<%s>" % get_startup_filename(board)
+    )
 
 # for clock init etc.
 if get_flag_value("use_builtin_system_code", True) and has_system_code:

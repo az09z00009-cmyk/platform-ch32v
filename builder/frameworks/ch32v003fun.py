@@ -1,5 +1,6 @@
-from os.path import join, isdir
+import os
 import sys
+from os.path import join, isdir
 from SCons.Script import DefaultEnvironment
 
 env = DefaultEnvironment()
@@ -15,18 +16,62 @@ env.SConscript("_bare.py")
 if "-std=gnu99" in env["CFLAGS"]:
     env["CFLAGS"].remove("-std=gnu99")
 
-# get framework directory
-FRAMEWORK_DIR = platform.get_package_dir("framework-ch32v003fun")
-MAIN_FUN_DIR = "ch32v003fun" if isdir(join(FRAMEWORK_DIR, "ch32v003fun")) else "ch32fun"
+
+#TODO: tradusir los comentarios a ingles de la solucion a la falla de compativilidad:
+#solucion al fallo de compativilidad en Windows por la funcion 
+
+# Obtener el directorio de instalación del framework.
+FRAMEWORK_DIR = env.PioPlatform().get_package_dir(
+    "framework-ch32v003fun"
+)
+
+if not FRAMEWORK_DIR or not isdir(FRAMEWORK_DIR):
+    sys.stderr.write(
+        "Error: framework-ch32v003fun directory not found.\n"
+    )
+    env.Exit(1)
+
+# Detectar la estructura instalada sin ocultar errores.
+if isdir(join(FRAMEWORK_DIR, "ch32fun")):
+    MAIN_FUN_DIR = "ch32fun"
+elif isdir(join(FRAMEWORK_DIR, "ch32v003fun")):
+    MAIN_FUN_DIR = "ch32v003fun"
+else:
+    sys.stderr.write(
+        "Error: no supported framework source directory found.\n"
+    )
+    env.Exit(1)
+
+# Seleccionar el script de enlace según la estructura detectada.
+CH32FUN_LDSCRIPT = (
+    "ch32fun.ld"
+    if MAIN_FUN_DIR == "ch32fun"
+    else "ch32v003fun.ld"
+)
+
+path_fun = join(FRAMEWORK_DIR, MAIN_FUN_DIR)
+path_libs = join(FRAMEWORK_DIR, "extralibs")
+
+print("[ch32v003fun] FRAMEWORK_DIR:", FRAMEWORK_DIR)
+print("[ch32v003fun] MAIN_FUN_DIR:", MAIN_FUN_DIR)
+print("[ch32v003fun] path_fun:", path_fun)
+print(
+    "[ch32v003fun] ch32fun.h exists:",
+    os.path.isfile(join(path_fun, "ch32fun.h"))
+)
+
 CH32FUN_LDSCRIPT = "ch32v003fun.ld" if isdir(join(FRAMEWORK_DIR, "ch32v003fun")) else "ch32fun.ld"
 
 if chip_name.startswith("ch32v003"):
     # get rid of the wrong chip identifier in board definition file for V003 series
     env.ProcessUnFlags("-DCH32V00x")
 
+
 # Add include paths and defines
 env.Append(
     CPPPATH=[
+#TODO: cambiar comentario al ingles del bug del MAIN_FUN_DIR
+# bug causado por la variable MAIN_FUN_DIR        
         join(FRAMEWORK_DIR, MAIN_FUN_DIR),
         join(FRAMEWORK_DIR, "extralibs"),
         # user will likely have the funconfig.h located in the src/ or include/ directory, so include it for the build too
@@ -48,6 +93,7 @@ env.Append(
         # The compiler seems to always generate these symbols even though we might not want it to use the builtin stdlib.
         # We fix that up by including the compiler's libgcc anyways afterwards.
         "-nostdlib"
+
     ],
     LINKFLAGS=[
         "-flto",
@@ -249,8 +295,75 @@ if not board.get("build.ldscript", ""):
     # Already put in the right path for the to-be-generated file
     env.Replace(LDSCRIPT_PATH=join("$BUILD_DIR", "ldscript.ld"))
 
-# build actual ch32v003fun source file
-env.BuildSources(
-    join("$BUILD_DIR", "FrameworkCh32v003fun"),
-    join(FRAMEWORK_DIR, MAIN_FUN_DIR)
+
+# Duplicamos la regla para el entorno global compartido (Por seguridad en Windows)
+global_env = DefaultEnvironment()
+global_env.Append(
+    CCFLAGS=[
+        "-I" + join(FRAMEWORK_DIR, MAIN_FUN_DIR),
+        "-I" + join(FRAMEWORK_DIR, "extralibs"),
+        "-I" + global_env.subst("$PROJECT_SRC_DIR"),
+        "-I" + global_env.subst("$PROJECT_INCLUDE_DIR")
+    ]
 )
+
+# =====================================================================
+# BUILD CH32FUN FRAMEWORK SOURCES
+# =====================================================================
+
+framework_src_dir = join(FRAMEWORK_DIR, MAIN_FUN_DIR)
+framework_build_dir = join("$BUILD_DIR", "FrameworkCh32v003fun")
+
+print("[ch32v003fun] Building framework sources from:",
+      framework_src_dir)
+
+# Fail early if the required implementation source is missing.
+if not os.path.isfile(join(framework_src_dir, "ch32fun.c")):
+    sys.stderr.write(
+        "[ch32v003fun] ERROR: ch32fun.c was not found in "
+        + framework_src_dir + "\n"
+    )
+    env.Exit(1)
+
+# ============================================================
+# BUILD CH32FUN FRAMEWORK SOURCES
+# ============================================================
+
+framework_src_dir = join(FRAMEWORK_DIR, MAIN_FUN_DIR)
+framework_build_dir = join(
+    "$BUILD_DIR",
+    "FrameworkCh32fun"
+)
+framework_c = join(framework_src_dir, "ch32fun.c")
+
+print("[CH32FUN] Source directory:", framework_src_dir)
+print("[CH32FUN] Source exists:", os.path.isfile(framework_c))
+
+if not os.path.isfile(framework_c):
+    sys.stderr.write(
+        "[CH32FUN] ERROR: ch32fun.c not found: "
+        + framework_c + "\n"
+    )
+    env.Exit(1)
+
+build_env = DefaultEnvironment()
+before = len(build_env.get("PIOBUILDFILES", []))
+
+env.BuildSources(
+    framework_build_dir,
+    framework_src_dir,
+    ["+<ch32fun.c>"]
+)
+
+after = len(build_env.get("PIOBUILDFILES", []))
+
+print(
+    "[CH32FUN] Registered build objects:",
+    after - before
+)
+
+if after <= before:
+    sys.stderr.write(
+        "[CH32FUN] ERROR: no framework objects registered.\n"
+    )
+    env.Exit(1)

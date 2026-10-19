@@ -134,7 +134,11 @@
       "type": "framework",
       "optional": true,
       "owner": "platformio",
-      "version": "https://github.com/Community-PIO-CH32V/ch32v003fun.git"
+      "version": "https://github.com/Community-PIO-CH32V/ch32v003fun.git",
+      "export_include_dirs": [
+        "ch32fun",
+        "extralibs"
+      ]
     },
     "framework-zephyr": {
       "type": "framework",

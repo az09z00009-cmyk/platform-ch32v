@@ -28,7 +28,39 @@ from SCons.Script import (
 env = DefaultEnvironment()
 platform = env.PioPlatform()
 board_config = env.BoardConfig()
-chip_name = str(board_config.get("build.mcu", "")).lower()
+chip_name = str(board_config.get("build.mcu", "")).lower() 
+
+
+#TODO: tradusir los comentarios al ingles
+# =====================================================================
+# PARCHE UNIVERSAL DE DETECCIÓN DE FRAMEWORK PARA CH32V003FUN (TU FORK)
+# =====================================================================
+# Accedemos de forma directa al motor global de SCons
+global_env = DefaultEnvironment()
+if "ch32v003fun" in env.get("PIOFRAMEWORK", []):
+    fw_dir = env.PioPlatform().get_package_dir("framework-ch32v003fun")
+    if fw_dir and os.path.exists(fw_dir):
+        folder_name = "ch32fun" if os.path.exists(os.path.join(fw_dir, "ch32fun")) else "ch32v003fun"
+        
+        path_fun = os.path.join(fw_dir, folder_name)
+        path_libs = os.path.join(fw_dir, "extralibs")
+        path_src = env.subst("$PROJECT_SRC_DIR")
+        path_inc = env.subst("$PROJECT_INCLUDE_DIR")
+
+        # 1. Parche global definitivo: Forzar las rutas directamente en las variables de SCons de la toolchain
+        # Esto obliga a PlatformIO a inyectar el parámetro -I de forma obligatoria en CADA ejecución de GCC
+        env.Prepend(CPPPATH=[path_fun, path_libs, path_src, path_inc])
+        
+        # 2. Inyección directa al generador de comandos de Windows de SCons
+        if "CCFLAGS" in env:
+            env["CCFLAGS"].extend(["-I" + path_fun, "-I" + path_libs])
+            
+        # 3. Forzamos la herencia en el constructor del preprocesador interno
+        env.Append(UPLOADERFLAGS=["-I" + path_fun, "-I" + path_libs])
+
+         # 4. BYPASS DE FUERZA BRUTA: Clavar las rutas directo a la llamada del ejecutable GCC
+        # ¡Añade esta línea exacta aquí abajo!
+        env.ProcessFlags("-I" + path_fun + " -I" + path_libs)
 
 # Depending on whether we're using GCC8 or GCC12, the compiler executable's names need to be adapted.
 # Attempt proper detection by looking at the package version.
@@ -255,11 +287,68 @@ elif upload_protocol == "espota":
 #agregue la compativilidad con el picoRVD
 
 elif upload_protocol == "picorvd":
+
+    # Reuse the GDB executable selected by the active toolchain.
+    gdb_name = env.subst("$GDB")
+    toolchain_dir = platform.get_package_dir("toolchain-riscv")
+
+    gdb_path = None
+
+    if gdb_name and gdb_name != "$GDB":
+        bin_dir = (
+            os.path.join(toolchain_dir, "bin")
+            if toolchain_dir
+            else ""
+        )
+
+        candidates = [
+            os.path.join(bin_dir, gdb_name),
+            os.path.join(bin_dir, gdb_name + ".exe"),
+        ] if bin_dir else []
+
+        # Also allow GDB to be resolved through the active PATH.
+        candidates.extend([
+            env.WhereIs(gdb_name),
+            env.WhereIs(gdb_name + ".exe"),
+        ])
+
+        gdb_path = next(
+            (
+                path for path in candidates
+                if path and os.path.isfile(path)
+            ),
+            None
+        )
+
+    if not gdb_path:
+        sys.stderr.write(
+            "PicoRVD: unable to locate GDB for toolchain-riscv.\n"
+            "Configured GDB: %s\n" % gdb_name
+        )
+        env.Exit(1)
+
+    print("[PicoRVD] GDB selected:", gdb_path)
+
     env.Replace(
-        UPLOADER="riscv64-unknown-elf-gdb",
-        UPLOADCMD='"$UPLOADER" -ex "target extended-remote $UPLOAD_PORT" -ex "monitor reset" -ex "load" -ex "detach" -ex "quit" $SOURCE'
+        UPLOADER=gdb_path,
+        UPLOADCMD=(
+            '"$UPLOADER" '
+            '-ex "target extended-remote $UPLOAD_PORT" '
+            '-ex "monitor reset" '
+            '-ex "load" '
+            '-ex "monitor reset" '
+            '-ex "detach" '
+            '-ex "quit" '
+            '"$SOURCE"'
+        ),
     )
-    
+
+    upload_actions = [
+        env.VerboseAction(
+            "$UPLOADCMD",
+            "Uploading $SOURCE"
+        )
+    ]
 # custom upload tool
 elif upload_protocol == "custom":
     upload_actions = [env.VerboseAction("$UPLOADCMD", "Uploading $SOURCE")]
